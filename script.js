@@ -226,12 +226,23 @@ function createBaitImage(mode) {
 
     // --- 1. Prepare the Alpha Channel ---
     let alphaMat = new cv.Mat();
+    // This creates an opaque white/black mask, same type as the sketch (CV_8UC1)
     let scalar255 = new cv.Mat(processedSketchMat.rows, processedSketchMat.cols, processedSketchMat.type(), new cv.Scalar(255));
     cv.subtract(scalar255, processedSketchMat, alphaMat);
     scalar255.delete();
     
     // --- 2. Prepare the RGB Channels ---
-    let rgbColor = mode === 'white' ? [0, 0, 0] : [255, 255, 255]; // Black or White
+    let rgbColor;
+    if (mode === 'white') {
+        // Black sketch: R=0, G=0, B=0, Alpha=255 (Opaque)
+        rgbColor = new cv.Scalar(0, 0, 0, 255);
+    } else { // mode === 'black'
+        // White sketch: R=255, G=255, B=255, Alpha=255 (Opaque)
+        rgbColor = new cv.Scalar(255, 255, 255, 255);
+    }
+    
+    // Create a 3-channel (RGB) matrix filled with the chosen color (Black or White)
+    // FIX: Pass the explicit cv.Scalar (4 elements) to the constructor
     let rgbMat = new cv.Mat(processedSketchMat.rows, processedSketchMat.cols, cv.CV_8UC3, rgbColor);
     
     // --- 3. Merge RGB and Alpha ---
@@ -245,7 +256,7 @@ function createBaitImage(mode) {
     channels.push_back(rgbList.get(0));
     channels.push_back(rgbList.get(1));
     channels.push_back(rgbList.get(2));
-    channels.push_back(alphaList.get(0));
+    channels.push_back(alphaList.get(0)); // The calculated Alpha channel
 
     let rgbaMat = new cv.Mat();
     cv.merge(channels, rgbaMat);
@@ -308,3 +319,4 @@ ctx.fillStyle = 'white';
 ctx.textAlign = 'center';
 ctx.font = '16px sans-serif';
 ctx.fillText('Select an image and parameters to start.', PREVIEW_MAX_WIDTH / 2, PREVIEW_MAX_HEIGHT / 2);
+
