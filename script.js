@@ -19,18 +19,21 @@ const saveBlackButton = document.getElementById('saveBlackButton');
 const saveBothButton = document.getElementById('saveBothButton');
 
 // --- OpenCV Ready Function ---
-function onOpenCvReady() {
-    if (typeof cv !== 'undefined') {
-        statusElement.textContent = "OpenCV.js loaded. Ready to process.";
-        isReady = true;
-    } else {
-        statusElement.textContent = "Error loading OpenCV.js.";
+Module = {
+    // This hook ensures that the code runs ONLY when OpenCV is fully loaded and ready.
+    onRuntimeInitialized: function() {
+        if (typeof cv !== 'undefined') {
+            statusElement.textContent = "OpenCV.js loaded. Ready to process.";
+            isReady = true;
+        } else {
+            statusElement.textContent = "Error loading OpenCV.js.";
+        }
+        // Set initial slider values and wire up listeners
+        tipSizeValue.textContent = tipSizeSlider.value;
+        rangeValue.textContent = rangeSlider.value;
+        addEventListeners();
     }
-    // Set initial slider values and wire up listeners
-    tipSizeValue.textContent = tipSizeSlider.value;
-    rangeValue.textContent = rangeSlider.value;
-    addEventListeners();
-}
+};
 
 // --- CORE IMAGE PROCESSING LOGIC (Translated from Python) ---
 
@@ -310,3 +313,4 @@ ctx.fillText('Select an image and parameters to start.', PREVIEW_MAX_WIDTH / 2, 
 
 // Wait for the opencv.js script to call onOpenCvReady()
 // The rest of the script logic is initialized there.
+
