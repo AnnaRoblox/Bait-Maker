@@ -1,6 +1,6 @@
 // --- Global Variables ---
 let originalImage = null;
-let processedSketchMat = null; // Stores the processed grayscale sketch (OpenCV Mat)
+let processedSketchMat = null;
 const PREVIEW_MAX_WIDTH = 600;
 const PREVIEW_MAX_HEIGHT = 500;
 let isReady = false;
@@ -39,15 +39,13 @@ Module = {
 // --- CORE IMAGE PROCESSING LOGIC ---
 
 function adjustLevels(srcMat, lower_bound, upper_bound) {
-    // Note: OpenCV.js Mat type is usually CV_8U (0-255)
     lower_bound = Math.max(0, Math.min(255, lower_bound));
     upper_bound = Math.max(0, Math.min(255, upper_bound));
 
     if (lower_bound >= upper_bound) {
-        return srcMat.clone(); // Return a copy if bounds are invalid
+        return srcMat.clone();
     }
 
-    // Create a Look-Up Table (LUT)
     let lut = new cv.Mat(1, 256, cv.CV_8UC1);
     let data = lut.data;
 
@@ -58,7 +56,6 @@ function adjustLevels(srcMat, lower_bound, upper_bound) {
         } else if (i >= upper_bound) {
             val = 255;
         } else {
-            // Linear interpolation and scaling
             val = Math.round(((i - lower_bound) / (upper_bound - lower_bound)) * 255);
         }
         data[i] = val;
@@ -82,7 +79,6 @@ function createPencilSketch(imgMat, pencil_tip_size, range_param) {
 
     // --- 2. Invert Grayscale ---
     let invertedGrayImg = new cv.Mat();
-    // FIX: Using grayImg.type() instead of grayImg.type
     let scalar255 = new cv.Mat(grayImg.rows, grayImg.cols, grayImg.type(), new cv.Scalar(255));
     cv.subtract(scalar255, grayImg, invertedGrayImg);
     scalar255.delete();
@@ -90,7 +86,7 @@ function createPencilSketch(imgMat, pencil_tip_size, range_param) {
     // --- 3. Blur the Inverted Image ---
     let kernelSize = parseInt(pencil_tip_size);
     if (kernelSize % 2 === 0) {
-        kernelSize += 1; // Ensure kernel size is odd
+        kernelSize += 1;
     }
     let blurredImg = new cv.Mat();
     let ksize = new cv.Size(kernelSize, kernelSize);
@@ -98,7 +94,6 @@ function createPencilSketch(imgMat, pencil_tip_size, range_param) {
     
     // --- 4. Invert the Blurred Image ---
     let invertedBlurredImg = new cv.Mat();
-    // FIX: Using blurredImg.type() instead of blurredImg.type
     let scalar255_2 = new cv.Mat(blurredImg.rows, blurredImg.cols, blurredImg.type(), new cv.Scalar(255));
     cv.subtract(scalar255_2, blurredImg, invertedBlurredImg);
     scalar255_2.delete();
@@ -121,13 +116,14 @@ function createPencilSketch(imgMat, pencil_tip_size, range_param) {
     invertedBlurredImg.delete();
     pencilSketch.delete();
 
-    return finalSketch; // This is the final CV_8UC1 Mat
+    return finalSketch;
 }
 
 // --- UI AND EVENT HANDLERS ---
 
 function addEventListeners() {
     fileInput.addEventListener('change', handleFileSelect);
+    // These listeners trigger the update job only if an image is loaded
     tipSizeSlider.addEventListener('input', scheduleUpdate);
     rangeSlider.addEventListener('input', scheduleUpdate);
     saveWhiteButton.addEventListener('click', () => saveSketch('white'));
@@ -144,13 +140,13 @@ function handleFileSelect(e) {
 
     const img = new Image();
     img.onload = () => {
-        // Clear previous image
-        if (originalImage) originalImage.delete();
-        if (processedSketchMat) processedSketchMat.delete();
+        // --- CLEANUP OF PREVIOUS MATS ---
+        if (originalImage && !originalImage.isDeleted()) originalImage.delete();
+        if (processedSketchMat && !processedSketchMat.isDeleted()) processedSketchMat.delete();
 
         // Load the image into an OpenCV Mat (RGBA)
         let mat = cv.imread(img);
-        originalImage = mat;
+        originalImage = mat; // Set the global originalImage variable
         
         // Update the preview
         updatePreview();
@@ -164,23 +160,30 @@ function scheduleUpdate() {
     tipSizeValue.textContent = tipSizeSlider.value;
     rangeValue.textContent = rangeSlider.value;
     
+    // The check is here: ONLY schedule an update if an image is loaded
     if (originalImage && !originalImage.empty()) {
         statusElement.textContent = "Parameters changed. Processing preview...";
         if (updateJob) {
             clearTimeout(updateJob);
         }
-        updateJob = setTimeout(updatePreview, 150); // DEBOUNCE_DELAY is 150ms
+        updateJob = setTimeout(updatePreview, 150);
     }
 }
 
 function updatePreview() {
-    if (!originalImage || originalImage.empty()) return;
+    // Check if originalImage is properly set before proceeding
+    if (!originalImage || originalImage.empty() || originalImage.isDeleted()) {
+        statusElement.textContent = "Error: Original image Mat is not ready.";
+        return;
+    }
 
     const tipSize = parseFloat(tipSizeSlider.value);
     const rangeParam = parseFloat(rangeSlider.value);
 
     // --- 1. Generate Sketch ---
-    if (processedSketchMat) processedSketchMat.delete();
+    // Safely delete the previous processed sketch before generating a new one
+    if (processedSketchMat && !processedSketchMat.isDeleted()) processedSketchMat.delete();
+    
     processedSketchMat = createPencilSketch(originalImage, tipSize, rangeParam);
 
     if (!processedSketchMat) {
@@ -188,7 +191,7 @@ function updatePreview() {
         return;
     }
 
-    // --- 2. Prepare for Canvas Display (Black Sketch on Black Background) ---
+    // --- 2. Prepare for Canvas Display ---
     let sketchRGB = new cv.Mat();
     cv.cvtColor(processedSketchMat, sketchRGB, cv.COLOR_GRAY2RGBA, 0);
 
@@ -205,7 +208,7 @@ function updatePreview() {
     imageCanvas.width = newWidth;
     imageCanvas.height = newHeight;
     const ctx = imageCanvas.getContext('2d');
-    ctx.fillStyle = 'black'; // Use a black background for the preview
+    ctx.fillStyle = 'black';
     ctx.fillRect(0, 0, newWidth, newHeight);
     
     cv.imshow('imageCanvas', resizedSketch);
@@ -217,18 +220,12 @@ function updatePreview() {
 
 // --- DOWNLOAD LOGIC (The "Bait Maker" part) ---
 
-/**
- * Creates a transparent PNG that is a black or white sketch, with transparency
- * inversely related to the sketch line intensity.
- * @param {string} mode - 'white' for black sketch on white background (Visible on White) 
- * 'black' for white sketch on black background (Visible on Black)
- */
 function createBaitImage(mode) {
-    if (!processedSketchMat || processedSketchMat.empty()) return null;
+    // Check if processedSketchMat is properly set
+    if (!processedSketchMat || processedSketchMat.empty() || processedSketchMat.isDeleted()) return null;
 
     // --- 1. Prepare the Alpha Channel ---
     let alphaMat = new cv.Mat();
-    // FIX: Using processedSketchMat.type() instead of processedSketchMat.type
     let scalar255 = new cv.Mat(processedSketchMat.rows, processedSketchMat.cols, processedSketchMat.type(), new cv.Scalar(255));
     cv.subtract(scalar255, processedSketchMat, alphaMat);
     scalar255.delete();
@@ -244,12 +241,11 @@ function createBaitImage(mode) {
     let rgbList = new cv.MatVector();
     cv.split(rgbMat, rgbList);
 
-    // The merge order for an RGBA image must be R, G, B, A
     let channels = new cv.MatVector();
     channels.push_back(rgbList.get(0));
     channels.push_back(rgbList.get(1));
     channels.push_back(rgbList.get(2));
-    channels.push_back(alphaList.get(0)); // The calculated Alpha channel
+    channels.push_back(alphaList.get(0));
 
     let rgbaMat = new cv.Mat();
     cv.merge(channels, rgbaMat);
@@ -261,25 +257,33 @@ function createBaitImage(mode) {
     alphaList.delete();
     rgbList.delete();
 
-    return rgbaMat; // This is the final transparent RGBA Mat
+    return rgbaMat;
 }
 
 
 function saveSketch(mode) {
-    if (!processedSketchMat || processedSketchMat.empty()) {
+    // This check now relies on the global processedSketchMat, which is set only 
+    // after the image is fully loaded and processed in updatePreview.
+    if (!processedSketchMat || processedSketchMat.empty() || processedSketchMat.isDeleted()) {
         statusElement.textContent = "Please select an image and generate a preview first.";
         return;
     }
 
     const baitMat = createBaitImage(mode);
-    if (!baitMat) return;
+    if (!baitMat) {
+        statusElement.textContent = "Error creating bait image.";
+        return;
+    }
 
     // Use a temporary canvas to get the PNG data URL
     const tempCanvas = document.createElement('canvas');
     cv.imshow(tempCanvas, baitMat);
 
     // Download the canvas content
-    const baseName = fileInput.files[0].name.split('.').slice(0, -1).join('.');
+    // Check if file is selected before accessing fileInput.files[0]
+    const baseName = fileInput.files.length > 0 
+                     ? fileInput.files[0].name.split('.').slice(0, -1).join('.') 
+                     : 'default'; // Fallback name
     const filename = `${baseName}_bait_${mode}.png`;
     
     const dataURL = tempCanvas.toDataURL("image/png");
