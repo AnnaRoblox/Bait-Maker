@@ -18,7 +18,7 @@ const saveWhiteButton = document.getElementById('saveWhiteButton');
 const saveBlackButton = document.getElementById('saveBlackButton');
 const saveBothButton = document.getElementById('saveBothButton');
 
-// --- OpenCV Ready Function ---
+// --- OpenCV Ready Function (Corrected Initialization) ---
 Module = {
     // This hook ensures that the code runs ONLY when OpenCV is fully loaded and ready.
     onRuntimeInitialized: function() {
@@ -35,7 +35,8 @@ Module = {
     }
 };
 
-// --- CORE IMAGE PROCESSING LOGIC (Translated from Python) ---
+
+// --- CORE IMAGE PROCESSING LOGIC ---
 
 function adjustLevels(srcMat, lower_bound, upper_bound) {
     // Note: OpenCV.js Mat type is usually CV_8U (0-255)
@@ -70,7 +71,6 @@ function adjustLevels(srcMat, lower_bound, upper_bound) {
 }
 
 function createPencilSketch(imgMat, pencil_tip_size, range_param) {
-    // Ensure OpenCV is loaded and image is valid
     if (!isReady || !imgMat || imgMat.empty()) {
         statusElement.textContent = "Error: Invalid image or OpenCV not ready.";
         return null;
@@ -78,12 +78,12 @@ function createPencilSketch(imgMat, pencil_tip_size, range_param) {
 
     // --- 1. Convert to Grayscale ---
     let grayImg = new cv.Mat();
-    // Assuming input imgMat is RGBA (from the canvas/loaded image)
     cv.cvtColor(imgMat, grayImg, cv.COLOR_RGBA2GRAY, 0);
 
     // --- 2. Invert Grayscale ---
     let invertedGrayImg = new cv.Mat();
-    let scalar255 = new cv.Mat(grayImg.rows, grayImg.cols, grayImg.type, new cv.Scalar(255));
+    // FIX: Using grayImg.type() instead of grayImg.type
+    let scalar255 = new cv.Mat(grayImg.rows, grayImg.cols, grayImg.type(), new cv.Scalar(255));
     cv.subtract(scalar255, grayImg, invertedGrayImg);
     scalar255.delete();
 
@@ -98,12 +98,12 @@ function createPencilSketch(imgMat, pencil_tip_size, range_param) {
     
     // --- 4. Invert the Blurred Image ---
     let invertedBlurredImg = new cv.Mat();
-    let scalar255_2 = new cv.Mat(blurredImg.rows, blurredImg.cols, blurredImg.type, new cv.Scalar(255));
+    // FIX: Using blurredImg.type() instead of blurredImg.type
+    let scalar255_2 = new cv.Mat(blurredImg.rows, blurredImg.cols, blurredImg.type(), new cv.Scalar(255));
     cv.subtract(scalar255_2, blurredImg, invertedBlurredImg);
     scalar255_2.delete();
     
     // --- 5. Division Blend ---
-    // pencil_sketch = cv2.divide(gray_img, inverted_blurred_img, scale=256.0)
     let pencilSketch = new cv.Mat();
     cv.divide(grayImg, invertedBlurredImg, pencilSketch, 256.0);
 
@@ -189,8 +189,6 @@ function updatePreview() {
     }
 
     // --- 2. Prepare for Canvas Display (Black Sketch on Black Background) ---
-    // The sketch is grayscale (CV_8UC1). We need RGBA for canvas.
-    // For a simple preview, we'll draw it as a black sketch on a black canvas.
     let sketchRGB = new cv.Mat();
     cv.cvtColor(processedSketchMat, sketchRGB, cv.COLOR_GRAY2RGBA, 0);
 
@@ -228,14 +226,10 @@ function updatePreview() {
 function createBaitImage(mode) {
     if (!processedSketchMat || processedSketchMat.empty()) return null;
 
-    // The sketch is an 8-bit grayscale image (CV_8UC1, 0-255).
-    // The alpha channel is the inverse of the sketch's brightness (255 - grayscale value).
-    // Darker lines (closer to 0) become more opaque (closer to 255 alpha).
-    // Brighter background (closer to 255) becomes transparent (closer to 0 alpha).
-    
     // --- 1. Prepare the Alpha Channel ---
     let alphaMat = new cv.Mat();
-    let scalar255 = new cv.Mat(processedSketchMat.rows, processedSketchMat.cols, processedSketchMat.type, new cv.Scalar(255));
+    // FIX: Using processedSketchMat.type() instead of processedSketchMat.type
+    let scalar255 = new cv.Mat(processedSketchMat.rows, processedSketchMat.cols, processedSketchMat.type(), new cv.Scalar(255));
     cv.subtract(scalar255, processedSketchMat, alphaMat);
     scalar255.delete();
     
@@ -248,7 +242,7 @@ function createBaitImage(mode) {
     alphaList.push_back(alphaMat);
     
     let rgbList = new cv.MatVector();
-    cv.split(rgbMat, rgbList); // Split the single color Mat (R, G, B channels are identical)
+    cv.split(rgbMat, rgbList);
 
     // The merge order for an RGBA image must be R, G, B, A
     let channels = new cv.MatVector();
@@ -310,7 +304,3 @@ ctx.fillStyle = 'white';
 ctx.textAlign = 'center';
 ctx.font = '16px sans-serif';
 ctx.fillText('Select an image and parameters to start.', PREVIEW_MAX_WIDTH / 2, PREVIEW_MAX_HEIGHT / 2);
-
-// Wait for the opencv.js script to call onOpenCvReady()
-// The rest of the script logic is initialized there.
-
