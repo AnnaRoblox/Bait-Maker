@@ -232,18 +232,21 @@ function createBaitImage(mode) {
     scalar255.delete();
     
     // --- 2. Prepare the RGB Channels ---
-    let rgbColor;
+    let colorScalar;
     if (mode === 'white') {
-        // Black sketch: R=0, G=0, B=0, Alpha=255 (Opaque)
-        rgbColor = new cv.Scalar(0, 0, 0, 255);
+        // Black sketch: R=0, G=0, B=0, Alpha=255. Using 4 elements for robustness with setTo.
+        colorScalar = new cv.Scalar(0, 0, 0, 255);
     } else { // mode === 'black'
-        // White sketch: R=255, G=255, B=255, Alpha=255 (Opaque)
-        rgbColor = new cv.Scalar(255, 255, 255, 255);
+        // White sketch: R=255, G=255, B=255, Alpha=255. Using 4 elements for robustness with setTo.
+        colorScalar = new cv.Scalar(255, 255, 255, 255);
     }
     
-    // Create a 3-channel (RGB) matrix filled with the chosen color (Black or White)
-    // FIX: Pass the explicit cv.Scalar (4 elements) to the constructor
-    let rgbMat = new cv.Mat(processedSketchMat.rows, processedSketchMat.cols, cv.CV_8UC3, rgbColor);
+    // FIX: Create the 3-channel (RGB) Mat header first
+    let rgbMat = new cv.Mat(processedSketchMat.rows, processedSketchMat.cols, cv.CV_8UC3);
+    
+    // FIX: Use the setTo() method to fill the Mat, which bypasses the Mat constructor's tricky scalar check.
+    rgbMat.setTo(colorScalar);
+    colorScalar.delete(); // Cleanup the scalar right away
     
     // --- 3. Merge RGB and Alpha ---
     let alphaList = new cv.MatVector();
@@ -252,6 +255,7 @@ function createBaitImage(mode) {
     let rgbList = new cv.MatVector();
     cv.split(rgbMat, rgbList);
 
+    // The merge order for an RGBA image must be R, G, B, A
     let channels = new cv.MatVector();
     channels.push_back(rgbList.get(0));
     channels.push_back(rgbList.get(1));
@@ -319,4 +323,5 @@ ctx.fillStyle = 'white';
 ctx.textAlign = 'center';
 ctx.font = '16px sans-serif';
 ctx.fillText('Select an image and parameters to start.', PREVIEW_MAX_WIDTH / 2, PREVIEW_MAX_HEIGHT / 2);
+
 
