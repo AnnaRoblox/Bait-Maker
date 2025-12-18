@@ -312,7 +312,114 @@ function saveSketch(mode) {
     baitMat.delete();
     statusElement.textContent = `Successfully saved ${filename}.`;
 }
+// Text handling logic
+const textInputsContainer = document.getElementById('textInputs');
+const addTextButton = document.getElementById('addTextButton');
+let textElements = [];
 
+// Add a new text input
+function addTextElement() {
+    const index = textElements.length;
+
+    const div = document.createElement('div');
+    div.innerHTML = `
+        <label>Text:</label>
+        <input type="text" placeholder="Enter text" id="text-${index}" />
+        <label>Position:</label>
+        <input type="number" placeholder="X" id="x-${index}" style="width: 60px;" />
+        <input type="number" placeholder="Y" id="y-${index}" style="width: 60px;" />
+        <label>Color:</label>
+        <select id="color-${index}">
+            <option value="white">White</option>
+            <option value="black">Black</option>
+        </select>
+        <label>Outline:</label>
+        <select id="outline-${index}">
+            <option value="none">None</option>
+            <option value="opposite">Opposite</option>
+        </select>
+    `;
+    textInputsContainer.appendChild(div);
+
+    textElements.push({
+        textId: `text-${index}`,
+        xId: `x-${index}`,
+        yId: `y-${index}`,
+        colorId: `color-${index}`,
+        outlineId: `outline-${index}`,
+    });
+}
+
+// Apply texts to canvas
+function applyTexts(ctx) {
+    textElements.forEach(element => {
+        const text = document.getElementById(element.textId).value;
+        const x = parseInt(document.getElementById(element.xId).value, 10) || 0;
+        const y = parseInt(document.getElementById(element.yId).value, 10) || 0;
+        const color = document.getElementById(element.colorId).value;
+        const outline = document.getElementById(element.outlineId).value;
+
+        if (text) {
+            ctx.font = '20px sans-serif';
+            ctx.fillStyle = color;
+            ctx.fillText(text, x, y);
+
+            if (outline === 'opposite') {
+                ctx.strokeStyle = color === 'white' ? 'black' : 'white';
+                ctx.lineWidth = 2;
+                ctx.strokeText(text, x, y);
+            }
+        }
+    });
+}
+
+addTextButton.addEventListener('click', addTextElement);
+
+// Update the preview to include the texts
+function updatePreview() {
+    if (!originalImage || originalImage.empty() || originalImage.isDeleted()) {
+        statusElement.textContent = "Error: Original image Mat is not ready.";
+        return;
+    }
+
+    const tipSize = parseFloat(tipSizeSlider.value);
+    const rangeParam = parseFloat(rangeSlider.value);
+
+    if (processedSketchMat && !processedSketchMat.isDeleted()) processedSketchMat.delete();
+
+    processedSketchMat = createPencilSketch(originalImage, tipSize, rangeParam);
+
+    if (!processedSketchMat) {
+        statusElement.textContent = "Error generating sketch.";
+        return;
+    }
+
+    let sketchRGB = new cv.Mat();
+    cv.cvtColor(processedSketchMat, sketchRGB, cv.COLOR_GRAY2RGBA, 0);
+
+    const ratio = Math.min(PREVIEW_MAX_WIDTH / sketchRGB.cols, PREVIEW_MAX_HEIGHT / sketchRGB.rows);
+    const newWidth = Math.round(sketchRGB.cols * ratio);
+    const newHeight = Math.round(sketchRGB.rows * ratio);
+
+    let resizedSketch = new cv.Mat();
+    let size = new cv.Size(newWidth, newHeight);
+    cv.resize(sketchRGB, resizedSketch, size, 0, 0, cv.INTER_LINEAR);
+
+    imageCanvas.width = newWidth;
+    imageCanvas.height = newHeight;
+    const ctx = imageCanvas.getContext('2d');
+    ctx.fillStyle = 'black';
+    ctx.fillRect(0, 0, newWidth, newHeight);
+    
+    cv.imshow('imageCanvas', resizedSketch);
+
+    // Apply text elements
+    applyTexts(ctx);
+
+    sketchRGB.delete();
+    resizedSketch.delete();
+    statusElement.textContent = "Ready. Preview updated.";
+            }
 // Initial canvas setup
 imageCanvas.width = PREVIEW_MAX_WIDTH;
 imageCanvas.height = PREVIEW_MAX_HEIGHT;
@@ -323,3 +430,4 @@ ctx.fillStyle = 'white';
 ctx.textAlign = 'center';
 ctx.font = '16px sans-serif';
 ctx.fillText('Select an image and parameters to start.', PREVIEW_MAX_WIDTH / 2, PREVIEW_MAX_HEIGHT / 2);
+
