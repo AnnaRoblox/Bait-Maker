@@ -3,76 +3,63 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AnnaRoblox's Web Bait Maker</title>
+    <title>Bait Maker</title>
     <style>
-        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; }
-        .container { display: flex; max-width: 1200px; margin: 0 auto; gap: 20px; }
-        .controls { flex-basis: 300px; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .preview { flex-grow: 1; padding: 15px; background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        
-        /* Input and Sliders */
-        input[type="file"], button { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
-        .slider-group { margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px; }
-        .slider-group label { display: block; margin-bottom: 5px; font-weight: bold; }
-        .slider-wrapper { display: flex; align-items: center; gap: 10px; }
-        .slider-wrapper input[type="range"] { flex-grow: 1; }
-        .value-display { font-weight: bold; width: 40px; text-align: right; }
-
-        /* Preview Area */
-        #status { margin-top: 10px; color: #555; }
-        #imageCanvas { border: 1px solid #ccc; max-width: 100%; display: block; margin: 0 auto; }
-        .hidden { display: none; }
-        
-        .accent-button { background-color: #007bff; color: white; border: none; font-weight: bold; }
-        .accent-button:hover { background-color: #0056b3; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        canvas {
+            border: 1px solid black;
+            display: block;
+            margin: 20px auto;
+        }
+        .controls {
+            text-align: center;
+            margin: 20px;
+        }
     </style>
 </head>
 <body>
-    <h1>Web Bait Maker</h1>
-
-    <div class="container">
-        <div class="controls">
-            
-            <h3>1. Select Image</h3>
-            <input type="file" id="fileInput" accept="image/*">
-            <p id="fileNameDisplay" style="font-size: 0.9em; color: gray;">No file selected</p>
-
-            <h3>Parameters</h3>
-            <div class="slider-group">
-                <label for="tipSizeSlider">Pencil Tip Size:</label>
-                <div class="slider-wrapper">
-                    <input type="range" id="tipSizeSlider" min="1" max="51" step="2" value="21">
-                    <span id="tipSizeValue" class="value-display">21</span>
-                </div>
-            </div>
-
-            <div class="slider-group">
-                <label for="rangeSlider">Range (Contrast):</label>
-                <div class="slider-wrapper">
-                    <input type="range" id="rangeSlider" min="-5" max="5" step="0.1" value="-1.5">
-                    <span id="rangeValue" class="value-display">-1.5</span>
-                </div>
-            </div>
-
-            <h3>2. Download Bait</h3>
-            <button id="saveWhiteButton">Visible on White (Black Sketch)</button>
-            <button id="saveBlackButton">Visible on Black (White Sketch)</button>
-            <button id="saveBothButton" class="accent-button">Save Both</button>
-            
-            <p id="status">Loading OpenCV.js...</p>
-        </div>
-
-        <div class="preview">
-            <h3>Preview (Uses Black Background)</h3>
-            <canvas id="imageCanvas" width="600" height="400"></canvas>
-        </div>
+    <h1 style="text-align: center;">Bait Maker</h1>
+    <div class="controls">
+        <label for="textInput">Enter your label: </label>
+        <input type="text" id="textInput" placeholder="Type here"/>
+        <button id="updateButton">Update Canvas</button>
     </div>
-    <h3>Text Management</h3>
-<div id="textInputs"></div>
-<button id="addTextButton" class="accent-button">Add Text</button>
-   <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
-    
-    <script src="script.js"></script> 
+    <canvas id="drawingCanvas" width="500" height="400"></canvas>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const textInput = document.getElementById('textInput');
+            const updateButton = document.getElementById('updateButton');
+            const canvas = document.getElementById('drawingCanvas');
+            const ctx = canvas.getContext('2d');
 
+            // Clear the canvas and draw the initial background
+            function drawBackground() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#f0f0f0';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = '#000';
+                ctx.strokeRect(0, 0, canvas.width, canvas.height);
+            }
+
+            // Function to update canvas drawing with user input
+            function updateCanvas() {
+                drawBackground();
+                const text = textInput.value;
+                ctx.fillStyle = '#000';
+                ctx.font = '20px Arial';
+                ctx.fillText(text, 50, 200);
+            }
+
+            // Attach event listener
+            updateButton.addEventListener('click', updateCanvas);
+
+            // Initial canvas setup
+            drawBackground();
+        });
+    </script>
 </body>
 </html>
