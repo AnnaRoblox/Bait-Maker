@@ -100,13 +100,13 @@ function addTextElement() {
         <div class="text-row">
             <label>Color:</label>
             <select id="color-${id}" onchange="scheduleUpdate()">
-                <option value="black">Black</option>
                 <option value="white">White</option>
+                <option value="black">Black</option>
             </select>
             <label>Outline:</label>
             <select id="outline-${id}" onchange="scheduleUpdate()">
-                <option value="none">None</option>
                 <option value="black">black Outline</option>
+                <option value="none">None</option>
                 <option value="white">White Outline</option>
             </select>
         </div>
