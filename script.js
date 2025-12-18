@@ -5,23 +5,34 @@ const PREVIEW_MAX_WIDTH = 800;
 const PREVIEW_MAX_HEIGHT = 600;
 let isReady = false;
 let textElements = [];
-let activeTextId = null;
+let activeTextIndex = null;
 
 // --- DOM Elements ---
 const statusElement = document.getElementById('status');
 const fileInput = document.getElementById('fileInput');
+const fileNameDisplay = document.getElementById('fileNameDisplay');
 const tipSizeSlider = document.getElementById('tipSizeSlider');
 const rangeSlider = document.getElementById('rangeSlider');
+const tipSizeValue = document.getElementById('tipSizeValue');
+const rangeValue = document.getElementById('rangeValue');
 const imageCanvas = document.getElementById('imageCanvas');
+const saveWhiteButton = document.getElementById('saveWhiteButton');
+const saveBlackButton = document.getElementById('saveBlackButton');
+const saveBothButton = document.getElementById('saveBothButton');
 const textInputsContainer = document.getElementById('textInputs');
+const addTextButton = document.getElementById('addTextButton');
 
 // --- Initialization ---
 Module = {
     onRuntimeInitialized: function() {
         if (typeof cv !== 'undefined') {
-            statusElement.textContent = "OpenCV loaded. Ready to work!";
+            statusElement.textContent = "OpenCV.js loaded. Ready.";
             isReady = true;
+        } else {
+            statusElement.textContent = "Error loading OpenCV.js.";
         }
+        tipSizeValue.textContent = tipSizeSlider.value;
+        rangeValue.textContent = rangeSlider.value;
         addEventListeners();
     }
 };
@@ -30,232 +41,254 @@ function addEventListeners() {
     fileInput.addEventListener('change', handleFileSelect);
     tipSizeSlider.addEventListener('input', scheduleUpdate);
     rangeSlider.addEventListener('input', scheduleUpdate);
-    document.getElementById('saveWhiteButton').addEventListener('click', () => saveSketch('white'));
-    document.getElementById('saveBlackButton').addEventListener('click', () => saveSketch('black'));
-    document.getElementById('saveBothButton').addEventListener('click', () => { saveSketch('white'); saveSketch('black'); });
-    document.getElementById('addTextButton').addEventListener('click', addTextElement);
+    saveWhiteButton.addEventListener('click', () => saveSketch('white'));
+    saveBlackButton.addEventListener('click', () => saveSketch('black'));
+    saveBothButton.addEventListener('click', () => { saveSketch('white'); saveSketch('black'); });
+    addTextButton.addEventListener('click', addTextElement);
     imageCanvas.addEventListener('mousedown', handleCanvasClick);
 }
 
-// --- CORE IMAGE PROCESSING ---
+// --- Image Processing Logic ---
 
-function createPencilSketch(imgMat, tipSize, rangeParam) {
+function adjustLevels(srcMat, lower_bound, upper_bound) {
+    lower_bound = Math.max(0, Math.min(255, lower_bound));
+    upper_bound = Math.max(0, Math.min(255, upper_bound));
+    if (lower_bound >= upper_bound) return srcMat.clone();
+
+    let lut = new cv.Mat(1, 256, cv.CV_8UC1);
+    let data = lut.data;
+    for (let i = 0; i < 256; i++) {
+        if (i <= lower_bound) data[i] = 0;
+        else if (i >= upper_bound) data[i] = 255;
+        else data[i] = Math.round(((i - lower_bound) / (upper_bound - lower_bound)) * 255);
+    }
+    let dst = new cv.Mat();
+    cv.LUT(srcMat, lut, dst);
+    lut.delete();
+    return dst;
+}
+
+function createPencilSketch(imgMat, pencil_tip_size, range_param) {
     if (!isReady || !imgMat || imgMat.empty()) return null;
 
-    let gray = new cv.Mat();
-    cv.cvtColor(imgMat, gray, cv.COLOR_RGBA2GRAY);
+    let grayImg = new cv.Mat();
+    cv.cvtColor(imgMat, grayImg, cv.COLOR_RGBA2GRAY, 0);
 
-    let invGray = new cv.Mat();
-    cv.bitwise_not(gray, invGray);
+    let invertedGrayImg = new cv.Mat();
+    cv.bitwise_not(grayImg, invertedGrayImg);
 
-    let kSize = parseInt(tipSize);
-    if (kSize % 2 === 0) kSize += 1;
+    let kernelSize = parseInt(pencil_tip_size);
+    if (kernelSize % 2 === 0) kernelSize += 1;
     
-    let blurred = new cv.Mat();
-    cv.GaussianBlur(invGray, blurred, new cv.Size(kSize, kSize), 0);
+    let blurredImg = new cv.Mat();
+    cv.GaussianBlur(invertedGrayImg, blurredImg, new cv.Size(kernelSize, kernelSize), 0);
     
-    let invBlurred = new cv.Mat();
-    cv.bitwise_not(blurred, invBlurred);
+    let invertedBlurredImg = new cv.Mat();
+    cv.bitwise_not(blurredImg, invertedBlurredImg);
     
-    let sketch = new cv.Mat();
-    cv.divide(gray, invBlurred, sketch, 256.0);
+    let pencilSketch = new cv.Mat();
+    cv.divide(grayImg, invertedBlurredImg, pencilSketch, 256.0);
 
-    // Level adjustment
-    const contrast = 20;
-    const low = 0 - (rangeParam * contrast);
-    const high = 255 + (rangeParam * contrast);
+    const contrastFactor = 20;
+    const lowerBound = 0 - (range_param * contrastFactor);
+    const upperBound = 255 + (range_param * contrastFactor);
     
-    let lut = new cv.Mat(1, 256, cv.CV_8UC1);
-    for (let i = 0; i < 256; i++) {
-        if (i <= low) lut.data[i] = 0;
-        else if (i >= high) lut.data[i] = 255;
-        else lut.data[i] = Math.round(((i - low) / (high - low)) * 255);
-    }
+    let finalSketch = adjustLevels(pencilSketch, lowerBound, upperBound);
     
-    let finalSketch = new cv.Mat();
-    cv.LUT(sketch, lut, finalSketch);
-
-    // Cleanup
-    gray.delete(); invGray.delete(); blurred.delete(); 
-    invBlurred.delete(); sketch.delete(); lut.delete();
+    grayImg.delete(); invertedGrayImg.delete(); blurredImg.delete(); 
+    invertedBlurredImg.delete(); pencilSketch.delete();
 
     return finalSketch;
 }
 
-// --- TEXT MANAGEMENT ---
+// --- Text Management ---
 
 function addTextElement() {
     const id = Date.now();
+    const index = textElements.length;
+
     const div = document.createElement('div');
     div.className = 'text-item';
-    div.id = `item-${id}`;
+    div.id = `container-${id}`;
     div.innerHTML = `
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-            <strong style="font-size:0.8em">Text Layer</strong>
-            <button class="delete-btn" onclick="removeText(${id})">✕</button>
+        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
+            <label>Text #${index + 1}</label>
+            <button class="delete-btn" onclick="removeTextElement(${id})">Delete</button>
         </div>
-        <input type="text" id="t-${id}" placeholder="Enter text..." oninput="scheduleUpdate()" onfocus="activeTextId = ${id}">
+        <input type="text" placeholder="Enter text..." id="text-${id}" oninput="scheduleUpdate()" onfocus="activeTextIndex = ${id}">
         <div class="text-row">
-            <input type="number" id="s-${id}" value="60" title="Font Size" oninput="scheduleUpdate()">
-            <select id="m-${id}" onchange="scheduleUpdate()">
-                <option value="bait">Solid Bait</option>
-                <option value="erase">Eraser</option>
-            </select>
+            <label>X:</label><input type="number" id="x-${id}" value="100" oninput="scheduleUpdate()">
+            <label>Y:</label><input type="number" id="y-${id}" value="100" oninput="scheduleUpdate()">
+            <label>Size:</label><input type="number" id="size-${id}" value="50" oninput="scheduleUpdate()">
         </div>
-        <input type="hidden" id="x-${id}" value="50">
-        <input type="hidden" id="y-${id}" value="50">
     `;
     textInputsContainer.appendChild(div);
-    textElements.push(id);
-    activeTextId = id;
+
+    textElements.push({
+        id: id,
+        textId: `text-${id}`,
+        xId: `x-${id}`,
+        yId: `y-${id}`,
+        sizeId: `size-${id}`
+    });
     
-    // Default position to center
-    if (originalImage) {
-        document.getElementById(`x-${id}`).value = Math.round(originalImage.cols / 2);
-        document.getElementById(`y-${id}`).value = Math.round(originalImage.rows / 2);
-    }
-    
+    activeTextIndex = id;
     scheduleUpdate();
 }
 
-function removeText(id) {
-    textElements = textElements.filter(tid => tid !== id);
-    document.getElementById(`item-${id}`).remove();
-    if (activeTextId === id) activeTextId = null;
+function removeTextElement(id) {
+    textElements = textElements.filter(el => el.id !== id);
+    document.getElementById(`container-${id}`).remove();
     scheduleUpdate();
 }
 
 function handleCanvasClick(e) {
-    if (!activeTextId || !originalImage) return;
+    if (activeTextIndex === null || textElements.length === 0) return;
 
     const rect = imageCanvas.getBoundingClientRect();
-    const scaleX = originalImage.cols / rect.width;
-    const scaleY = originalImage.rows / rect.height;
+    const scaleX = imageCanvas.width / rect.width;
+    const scaleY = imageCanvas.height / rect.height;
     
-    document.getElementById(`x-${activeTextId}`).value = Math.round((e.clientX - rect.left) * scaleX);
-    document.getElementById(`y-${activeTextId}`).value = Math.round((e.clientY - rect.top) * scaleY);
+    const x = Math.round((e.clientX - rect.left) * scaleX);
+    const y = Math.round((e.clientY - rect.top) * scaleY);
+
+    const xInput = document.getElementById(`x-${activeTextIndex}`);
+    const yInput = document.getElementById(`y-${activeTextIndex}`);
     
-    scheduleUpdate();
+    if (xInput && yInput) {
+        xInput.value = x;
+        yInput.value = y;
+        scheduleUpdate();
+    }
 }
 
 /**
- * This is the crucial part: drawing text into the OpenCV mat 
- * so it inherits the transparency logic.
+ * Renders the text onto a context.
+ * IMPORTANT: To make the text "baitable," we draw it in Black or White 
+ * on the grayscale map.
  */
-function burnTextToMat(targetMat) {
-    const tempCanvas = document.createElement('canvas');
-    tempCanvas.width = targetMat.cols;
-    tempCanvas.height = targetMat.rows;
-    const ctx = tempCanvas.getContext('2d');
-
-    textElements.forEach(id => {
-        const text = document.getElementById(`t-${id}`).value;
-        const x = parseInt(document.getElementById(`x-${id}`).value);
-        const y = parseInt(document.getElementById(`y-${id}`).value);
-        const size = parseInt(document.getElementById(`s-${id}`).value);
-        const mode = document.getElementById(`m-${id}`).value;
+function renderTextToMap(ctx, scale, mode = 'preview') {
+    textElements.forEach(el => {
+        const text = document.getElementById(el.textId).value;
+        const x = parseInt(document.getElementById(el.xId).value) * scale;
+        const y = parseInt(document.getElementById(el.yId).value) * scale;
+        const size = parseInt(document.getElementById(el.sizeId).value) * scale;
 
         if (text) {
             ctx.font = `bold ${size}px Arial`;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-            // In the sketch mat: 0 = Black (becomes opaque bait), 255 = White (becomes transparent)
-            ctx.fillStyle = (mode === 'bait') ? "black" : "white";
+            
+            // To appear in the final "bait", text must be DARK on the grayscale map
+            // because the alpha channel is calculated as (255 - grayscale_value).
+            ctx.fillStyle = "black"; 
             ctx.fillText(text, x, y);
         }
     });
-
-    // Blend the canvas text onto the Mat
-    let textMat = cv.imread(tempCanvas);
-    let grayText = new cv.Mat();
-    cv.cvtColor(textMat, grayText, cv.COLOR_RGBA2GRAY);
-
-    // Only update pixels where text was actually drawn
-    // We use a simple minimum to "burn" black text into the sketch
-    for (let row = 0; row < targetMat.rows; row++) {
-        for (let col = 0; col < targetMat.cols; col++) {
-            let textPixel = grayText.ucharPtr(row, col)[0];
-            // If the text canvas isn't empty here
-            if (textPixel < 255) { 
-                targetMat.ucharPtr(row, col)[0] = textPixel;
-            }
-        }
-    }
-
-    textMat.delete(); grayText.delete();
 }
 
-// --- UI & UPDATES ---
+// --- UI Logic ---
 
-let updateTimer = null;
+let updateJob = null;
 function scheduleUpdate() {
-    document.getElementById('tipSizeValue').textContent = tipSizeSlider.value;
-    document.getElementById('rangeValue').textContent = rangeSlider.value;
-    if (updateTimer) clearTimeout(updateTimer);
-    updateTimer = setTimeout(updatePreview, 100);
+    tipSizeValue.textContent = tipSizeSlider.value;
+    rangeValue.textContent = rangeSlider.value;
+    
+    if (originalImage) {
+        if (updateJob) clearTimeout(updateJob);
+        updateJob = setTimeout(updatePreview, 50);
+    }
 }
 
 function handleFileSelect(e) {
-    if (e.target.files.length === 0) return;
+    if (!isReady || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+    fileNameDisplay.textContent = file.name;
+
     const img = new Image();
     img.onload = () => {
         if (originalImage) originalImage.delete();
         originalImage = cv.imread(img);
         updatePreview();
     };
-    img.src = URL.createObjectURL(e.target.files[0]);
-    document.getElementById('fileNameDisplay').textContent = e.target.files[0].name;
+    img.src = URL.createObjectURL(file);
 }
 
 function updatePreview() {
-    if (!originalImage) return;
+    if (!originalImage || originalImage.empty()) return;
+
+    const tipSize = parseFloat(tipSizeSlider.value);
+    const rangeParam = parseFloat(rangeSlider.value);
 
     if (processedSketchMat) processedSketchMat.delete();
-    processedSketchMat = createPencilSketch(originalImage, tipSizeSlider.value, rangeSlider.value);
-    
-    // Apply texts to the sketch mat
-    burnTextToMat(processedSketchMat);
+    processedSketchMat = createPencilSketch(originalImage, tipSize, rangeParam);
 
-    // Prepare for display (convert to RGBA)
-    let displayMat = new cv.Mat();
     const ratio = Math.min(PREVIEW_MAX_WIDTH / originalImage.cols, PREVIEW_MAX_HEIGHT / originalImage.rows);
-    cv.resize(processedSketchMat, displayMat, new cv.Size(Math.round(originalImage.cols * ratio), Math.round(originalImage.rows * ratio)));
-
-    imageCanvas.width = displayMat.cols;
-    imageCanvas.height = displayMat.rows;
-    cv.imshow('imageCanvas', displayMat);
+    const newWidth = Math.round(originalImage.cols * ratio);
+    const newHeight = Math.round(originalImage.rows * ratio);
     
-    displayMat.delete();
-    statusElement.textContent = "Preview Updated";
+    let previewMat = new cv.Mat();
+    cv.resize(processedSketchMat, previewMat, new cv.Size(newWidth, newHeight));
+
+    imageCanvas.width = newWidth;
+    imageCanvas.height = newHeight;
+    
+    // Draw base sketch
+    cv.imshow('imageCanvas', previewMat);
+    
+    // Draw Text onto the same grayscale canvas so it "merges" with the sketch
+    const ctx = imageCanvas.getContext('2d');
+    renderTextToMap(ctx, 1);
+
+    previewMat.delete();
 }
+
+// --- Bait Generation (Download) ---
 
 function saveSketch(mode) {
     if (!processedSketchMat) return;
 
-    const width = processedSketchMat.cols;
-    const height = processedSketchMat.rows;
-    
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = width;
-    exportCanvas.height = height;
-    const ctx = exportCanvas.getContext('2d');
-    
-    const imgData = ctx.createImageData(width, height);
-    const sketchData = processedSketchMat.data;
-    const color = (mode === 'white') ? 0 : 255; 
+    // 1. Create a workspace canvas at full resolution
+    const workCanvas = document.createElement('canvas');
+    workCanvas.width = processedSketchMat.cols;
+    workCanvas.height = processedSketchMat.rows;
+    const workCtx = workCanvas.getContext('2d');
 
-    for (let i = 0; i < sketchData.length; i++) {
-        const idx = i * 4;
-        imgData.data[idx] = color;     // R
-        imgData.data[idx + 1] = color; // G
-        imgData.data[idx + 2] = color; // B
-        imgData.data[idx + 3] = 255 - sketchData[i]; // Alpha: Darker sketch = More opaque
+    // 2. Draw the grayscale sketch onto the work canvas
+    cv.imshow(workCanvas, processedSketchMat);
+
+    // 3. Bake the text into this grayscale map at full resolution
+    const exportScale = workCanvas.width / imageCanvas.width;
+    renderTextToMap(workCtx, exportScale);
+
+    // 4. Get the combined pixel data (Sketch + Text)
+    const combinedData = workCtx.getImageData(0, 0, workCanvas.width, workCanvas.height);
+    
+    // 5. Create the final Bait Image
+    const finalCanvas = document.createElement('canvas');
+    finalCanvas.width = workCanvas.width;
+    finalCanvas.height = workCanvas.height;
+    const finalCtx = finalCanvas.getContext('2d');
+    const finalImgData = finalCtx.createImageData(finalCanvas.width, finalCanvas.height);
+
+    const inkColor = (mode === 'white') ? 0 : 255; // Black ink for white theme, White ink for dark theme
+
+    for (let i = 0; i < combinedData.data.length; i += 4) {
+        // We use the Red channel of our baked grayscale map to determine transparency
+        const grayValue = combinedData.data[i]; 
+        const alpha = 255 - grayValue;
+
+        finalImgData.data[i] = inkColor;     // R
+        finalImgData.data[i + 1] = inkColor; // G
+        finalImgData.data[i + 2] = inkColor; // B
+        finalImgData.data[i + 3] = alpha;    // Alpha
     }
 
-    ctx.putImageData(imgData, 0, 0);
-    
+    finalCtx.putImageData(finalImgData, 0, 0);
+
+    // 6. Trigger Download
     const link = document.createElement('a');
     link.download = `bait_${mode}.png`;
-    link.href = exportCanvas.toDataURL("image/png");
+    link.href = finalCanvas.toDataURL("image/png");
     link.click();
 }
