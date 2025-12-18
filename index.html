@@ -5,37 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AnnaRoblox's Web Bait Maker</title>
     <style>
-        body { font-family: 'Segoe UI', Tahoma, sans-serif; margin: 20px; background-color: #f0f2f5; color: #333; }
-        .container { display: flex; max-width: 1300px; margin: 0 auto; gap: 20px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 20px; background-color: #f0f2f5; color: #333; }
+        h1 { text-align: center; color: #1a1a1a; }
+        .container { display: flex; max-width: 1300px; margin: 0 auto; gap: 20px; align-items: flex-start; }
         
         .controls { 
-            flex-basis: 350px; padding: 20px; background: white; border-radius: 12px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1); max-height: 90vh; overflow-y: auto; 
+            flex-basis: 350px; 
+            padding: 20px; 
+            background: white; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08); 
+            max-height: 90vh;
+            overflow-y: auto;
         }
         
         .preview { 
-            flex-grow: 1; padding: 20px; background: #1a1a1a; border-radius: 12px; 
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3); display: flex; flex-direction: column; align-items: center; 
+            flex-grow: 1; 
+            padding: 20px; 
+            background: #222; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2); 
+            display: flex;
+            flex-direction: column;
+            align-items: center;
         }
 
-        h1 { text-align: center; font-weight: 300; }
-        h3 { border-bottom: 2px solid #eee; padding-bottom: 5px; margin-top: 25px; }
+        .preview h3 { color: white; margin-top: 0; }
         
-        input[type="file"], button { width: 100%; padding: 12px; margin-bottom: 10px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; }
-        .slider-group { margin-bottom: 15px; }
+        input[type="file"], button { width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 6px; border: 1px solid #ddd; cursor: pointer; }
+        .slider-group { margin-bottom: 15px; border-bottom: 1px solid #eee; padding-bottom: 10px; }
+        .slider-group label { display: block; margin-bottom: 5px; font-weight: 600; font-size: 0.9em; }
         .slider-wrapper { display: flex; align-items: center; gap: 10px; }
-        .value-display { font-weight: bold; width: 40px; text-align: right; }
+        .slider-wrapper input[type="range"] { flex-grow: 1; }
+        .value-display { font-weight: bold; width: 45px; text-align: right; font-size: 0.85em; }
 
-        .text-item { background: #f8f9fa; padding: 12px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #007bff; }
-        .text-row { display: flex; gap: 5px; margin-top: 5px; }
-        .text-row input { flex: 1; padding: 5px; border: 1px solid #ccc; border-radius: 4px; }
+        .text-item {
+            background: #f9f9f9;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 4px solid #007bff;
+        }
+        .text-item input[type="text"] { width: 100%; box-sizing: border-box; margin-bottom: 5px; }
+        .text-row { display: flex; gap: 5px; margin-bottom: 5px; align-items: center; }
+        .text-row label { font-size: 11px; font-weight: bold; }
+        .text-row input[type="number"] { width: 60px; padding: 4px; }
+
+        #status { font-size: 0.85em; color: #666; font-style: italic; margin-bottom: 10px; }
+        #imageCanvas { border: 2px solid #444; cursor: crosshair; max-width: 100%; background-color: #000; }
         
-        #imageCanvas { border: 1px solid #444; cursor: crosshair; max-width: 100%; background: #000; }
-        .accent-button { background-color: #007bff; color: white; border: none; font-weight: bold; }
+        .accent-button { background-color: #007bff; color: white; border: none; font-weight: bold; transition: background 0.2s; }
         .accent-button:hover { background-color: #0056b3; }
+        .download-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .full-width { grid-column: span 2; }
         
-        #status { font-size: 0.8em; color: #666; margin-top: 10px; text-align: center; }
-        .delete-btn { background: #ff4d4d; color: white; border: none; padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; }
+        .delete-btn { background: #ff4d4d; color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 10px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -43,41 +67,47 @@
 
     <div class="container">
         <div class="controls">
-            <h3>1. Image Source</h3>
+            <h3>1. Select Image</h3>
             <input type="file" id="fileInput" accept="image/*">
-            <p id="fileNameDisplay" style="font-size: 0.8em; color: gray;">No file selected</p>
+            <p id="fileNameDisplay" style="font-size: 0.8em; color: gray; margin-top: -10px;">No file selected</p>
 
-            <h3>2. Sketch Tuning</h3>
+            <h3>2. Parameters</h3>
             <div class="slider-group">
-                <label>Pencil Tip Size</label>
+                <label for="tipSizeSlider">Pencil Tip Size:</label>
                 <div class="slider-wrapper">
                     <input type="range" id="tipSizeSlider" min="1" max="51" step="2" value="21">
                     <span id="tipSizeValue" class="value-display">21</span>
                 </div>
             </div>
+
             <div class="slider-group">
-                <label>Contrast Range</label>
+                <label for="rangeSlider">Range (Contrast):</label>
                 <div class="slider-wrapper">
                     <input type="range" id="rangeSlider" min="-5" max="5" step="0.1" value="-1.5">
                     <span id="rangeValue" class="value-display">-1.5</span>
                 </div>
             </div>
 
-            <h3>3. Text Layers</h3>
+            <h3>3. Text Management</h3>
             <div id="textInputs"></div>
-            <button id="addTextButton" class="accent-button">Add Text Layer</button>
-            <p style="font-size: 0.7em; color: #999;">Click the preview to move the selected text!</p>
+            <button id="addTextButton" class="accent-button">Add New Text</button>
+            <p style="font-size: 0.75em; color: #888;">Tip: Click preview to position active text.</p>
 
-            <h3>4. Finish</h3>
-            <button id="saveWhiteButton">Visible on White (Black)</button>
-            <button id="saveBlackButton">Visible on Black (White)</button>
-            <button id="saveBothButton" class="accent-button">Download Both</button>
+            <hr>
+
+            <h3>4. Download Bait</h3>
+            <div class="download-group">
+                <button id="saveWhiteButton">Visible on White</button>
+                <button id="saveBlackButton">Visible on Black</button>
+                <button id="saveBothButton" class="accent-button full-width">Download Both</button>
+            </div>
             
-            <p id="status">Waiting for OpenCV...</p>
+            <p id="status">Loading OpenCV.js...</p>
         </div>
 
         <div class="preview">
-            <h3 style="color: white; margin-top:0;">Live Preview</h3>
+            <h3>Preview</h3>
+            <p style="color: #aaa; font-size: 0.8em; margin-bottom: 10px;">(Dark Mode Preview)</p>
             <canvas id="imageCanvas"></canvas>
         </div>
     </div>
