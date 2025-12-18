@@ -5,34 +5,23 @@ const PREVIEW_MAX_WIDTH = 800;
 const PREVIEW_MAX_HEIGHT = 600;
 let isReady = false;
 let textElements = [];
-let activeTextIndex = null;
+let activeTextId = null;
 
 // --- DOM Elements ---
 const statusElement = document.getElementById('status');
 const fileInput = document.getElementById('fileInput');
-const fileNameDisplay = document.getElementById('fileNameDisplay');
 const tipSizeSlider = document.getElementById('tipSizeSlider');
 const rangeSlider = document.getElementById('rangeSlider');
-const tipSizeValue = document.getElementById('tipSizeValue');
-const rangeValue = document.getElementById('rangeValue');
 const imageCanvas = document.getElementById('imageCanvas');
-const saveWhiteButton = document.getElementById('saveWhiteButton');
-const saveBlackButton = document.getElementById('saveBlackButton');
-const saveBothButton = document.getElementById('saveBothButton');
 const textInputsContainer = document.getElementById('textInputs');
-const addTextButton = document.getElementById('addTextButton');
 
 // --- Initialization ---
 Module = {
     onRuntimeInitialized: function() {
         if (typeof cv !== 'undefined') {
-            statusElement.textContent = "OpenCV.js loaded. Ready.";
+            statusElement.textContent = "OpenCV loaded. Ready to work!";
             isReady = true;
-        } else {
-            statusElement.textContent = "Error loading OpenCV.js.";
         }
-        tipSizeValue.textContent = tipSizeSlider.value;
-        rangeValue.textContent = rangeSlider.value;
         addEventListeners();
     }
 };
@@ -41,272 +30,232 @@ function addEventListeners() {
     fileInput.addEventListener('change', handleFileSelect);
     tipSizeSlider.addEventListener('input', scheduleUpdate);
     rangeSlider.addEventListener('input', scheduleUpdate);
-    saveWhiteButton.addEventListener('click', () => saveSketch('white'));
-    saveBlackButton.addEventListener('click', () => saveSketch('black'));
-    saveBothButton.addEventListener('click', () => { saveSketch('white'); saveSketch('black'); });
-    addTextButton.addEventListener('click', addTextElement);
-    
-    // Canvas Click for positioning
+    document.getElementById('saveWhiteButton').addEventListener('click', () => saveSketch('white'));
+    document.getElementById('saveBlackButton').addEventListener('click', () => saveSketch('black'));
+    document.getElementById('saveBothButton').addEventListener('click', () => { saveSketch('white'); saveSketch('black'); });
+    document.getElementById('addTextButton').addEventListener('click', addTextElement);
     imageCanvas.addEventListener('mousedown', handleCanvasClick);
 }
 
-// --- Image Processing ---
+// --- CORE IMAGE PROCESSING ---
 
-function adjustLevels(srcMat, lower_bound, upper_bound) {
-    lower_bound = Math.max(0, Math.min(255, lower_bound));
-    upper_bound = Math.max(0, Math.min(255, upper_bound));
-    if (lower_bound >= upper_bound) return srcMat.clone();
-
-    let lut = new cv.Mat(1, 256, cv.CV_8UC1);
-    let data = lut.data;
-    for (let i = 0; i < 256; i++) {
-        if (i <= lower_bound) data[i] = 0;
-        else if (i >= upper_bound) data[i] = 255;
-        else data[i] = Math.round(((i - lower_bound) / (upper_bound - lower_bound)) * 255);
-    }
-    let dst = new cv.Mat();
-    cv.LUT(srcMat, lut, dst);
-    lut.delete();
-    return dst;
-}
-
-function createPencilSketch(imgMat, pencil_tip_size, range_param) {
+function createPencilSketch(imgMat, tipSize, rangeParam) {
     if (!isReady || !imgMat || imgMat.empty()) return null;
 
-    let grayImg = new cv.Mat();
-    cv.cvtColor(imgMat, grayImg, cv.COLOR_RGBA2GRAY, 0);
+    let gray = new cv.Mat();
+    cv.cvtColor(imgMat, gray, cv.COLOR_RGBA2GRAY);
 
-    let invertedGrayImg = new cv.Mat();
-    cv.bitwise_not(grayImg, invertedGrayImg);
+    let invGray = new cv.Mat();
+    cv.bitwise_not(gray, invGray);
 
-    let kernelSize = parseInt(pencil_tip_size);
-    if (kernelSize % 2 === 0) kernelSize += 1;
+    let kSize = parseInt(tipSize);
+    if (kSize % 2 === 0) kSize += 1;
     
-    let blurredImg = new cv.Mat();
-    cv.GaussianBlur(invertedGrayImg, blurredImg, new cv.Size(kernelSize, kernelSize), 0);
+    let blurred = new cv.Mat();
+    cv.GaussianBlur(invGray, blurred, new cv.Size(kSize, kSize), 0);
     
-    let invertedBlurredImg = new cv.Mat();
-    cv.bitwise_not(blurredImg, invertedBlurredImg);
+    let invBlurred = new cv.Mat();
+    cv.bitwise_not(blurred, invBlurred);
     
-    let pencilSketch = new cv.Mat();
-    cv.divide(grayImg, invertedBlurredImg, pencilSketch, 256.0);
+    let sketch = new cv.Mat();
+    cv.divide(gray, invBlurred, sketch, 256.0);
 
-    const contrastFactor = 20;
-    const lowerBound = 0 - (range_param * contrastFactor);
-    const upperBound = 255 + (range_param * contrastFactor);
+    // Level adjustment
+    const contrast = 20;
+    const low = 0 - (rangeParam * contrast);
+    const high = 255 + (rangeParam * contrast);
     
-    let finalSketch = adjustLevels(pencilSketch, lowerBound, upperBound);
+    let lut = new cv.Mat(1, 256, cv.CV_8UC1);
+    for (let i = 0; i < 256; i++) {
+        if (i <= low) lut.data[i] = 0;
+        else if (i >= high) lut.data[i] = 255;
+        else lut.data[i] = Math.round(((i - low) / (high - low)) * 255);
+    }
     
-    grayImg.delete(); invertedGrayImg.delete(); blurredImg.delete(); 
-    invertedBlurredImg.delete(); pencilSketch.delete();
+    let finalSketch = new cv.Mat();
+    cv.LUT(sketch, lut, finalSketch);
+
+    // Cleanup
+    gray.delete(); invGray.delete(); blurred.delete(); 
+    invBlurred.delete(); sketch.delete(); lut.delete();
 
     return finalSketch;
 }
 
-// --- Text Logic ---
+// --- TEXT MANAGEMENT ---
 
 function addTextElement() {
     const id = Date.now();
-    const index = textElements.length;
-
     const div = document.createElement('div');
     div.className = 'text-item';
-    div.id = `container-${id}`;
+    div.id = `item-${id}`;
     div.innerHTML = `
-        <div style="display:flex; justify-content:space-between; margin-bottom:5px;">
-            <label>Text #${index + 1}</label>
-            <button class="delete-btn" onclick="removeTextElement(${id})">Delete</button>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+            <strong style="font-size:0.8em">Text Layer</strong>
+            <button class="delete-btn" onclick="removeText(${id})">✕</button>
         </div>
-        <input type="text" placeholder="Your text here..." id="text-${id}" oninput="scheduleUpdate()" onfocus="activeTextIndex = ${id}">
+        <input type="text" id="t-${id}" placeholder="Enter text..." oninput="scheduleUpdate()" onfocus="activeTextId = ${id}">
         <div class="text-row">
-            <label>X:</label><input type="number" id="x-${id}" value="50" oninput="scheduleUpdate()">
-            <label>Y:</label><input type="number" id="y-${id}" value="50" oninput="scheduleUpdate()">
-            <label>Size:</label><input type="number" id="size-${id}" value="40" oninput="scheduleUpdate()">
-        </div>
-        <div class="text-row">
-            <select id="color-${id}" onchange="scheduleUpdate()">
-                <option value="white">White Text</option>
-                <option value="black">Black Text</option>
-            </select>
-            <select id="outline-${id}" onchange="scheduleUpdate()">
-                <option value="none">No Outline</option>
-                <option value="opposite">Outline</option>
+            <input type="number" id="s-${id}" value="60" title="Font Size" oninput="scheduleUpdate()">
+            <select id="m-${id}" onchange="scheduleUpdate()">
+                <option value="bait">Solid Bait</option>
+                <option value="erase">Eraser</option>
             </select>
         </div>
+        <input type="hidden" id="x-${id}" value="50">
+        <input type="hidden" id="y-${id}" value="50">
     `;
     textInputsContainer.appendChild(div);
-
-    textElements.push({
-        id: id,
-        textId: `text-${id}`,
-        xId: `x-${id}`,
-        yId: `y-${id}`,
-        sizeId: `size-${id}`,
-        colorId: `color-${id}`,
-        outlineId: `outline-${id}`
-    });
+    textElements.push(id);
+    activeTextId = id;
     
-    activeTextIndex = id;
+    // Default position to center
+    if (originalImage) {
+        document.getElementById(`x-${id}`).value = Math.round(originalImage.cols / 2);
+        document.getElementById(`y-${id}`).value = Math.round(originalImage.rows / 2);
+    }
+    
     scheduleUpdate();
 }
 
-function removeTextElement(id) {
-    textElements = textElements.filter(el => el.id !== id);
-    document.getElementById(`container-${id}`).remove();
+function removeText(id) {
+    textElements = textElements.filter(tid => tid !== id);
+    document.getElementById(`item-${id}`).remove();
+    if (activeTextId === id) activeTextId = null;
     scheduleUpdate();
 }
 
 function handleCanvasClick(e) {
-    if (activeTextIndex === null || textElements.length === 0) return;
+    if (!activeTextId || !originalImage) return;
 
     const rect = imageCanvas.getBoundingClientRect();
-    const scaleX = imageCanvas.width / rect.width;
-    const scaleY = imageCanvas.height / rect.height;
+    const scaleX = originalImage.cols / rect.width;
+    const scaleY = originalImage.rows / rect.height;
     
-    // Get mouse position relative to canvas
-    const x = Math.round((e.clientX - rect.left) * scaleX);
-    const y = Math.round((e.clientY - rect.top) * scaleY);
-
-    // Find the active element inputs
-    const xInput = document.getElementById(`x-${activeTextIndex}`);
-    const yInput = document.getElementById(`y-${activeTextIndex}`);
+    document.getElementById(`x-${activeTextId}`).value = Math.round((e.clientX - rect.left) * scaleX);
+    document.getElementById(`y-${activeTextId}`).value = Math.round((e.clientY - rect.top) * scaleY);
     
-    if (xInput && yInput) {
-        xInput.value = x;
-        yInput.value = y;
-        scheduleUpdate();
-    }
+    scheduleUpdate();
 }
 
-function applyTexts(ctx, scale = 1) {
-    textElements.forEach(el => {
-        const text = document.getElementById(el.textId).value;
-        const x = parseInt(document.getElementById(el.xId).value) * scale;
-        const y = parseInt(document.getElementById(el.yId).value) * scale;
-        const size = parseInt(document.getElementById(el.sizeId).value) * scale;
-        const color = document.getElementById(el.colorId).value;
-        const outline = document.getElementById(el.outlineId).value;
+/**
+ * This is the crucial part: drawing text into the OpenCV mat 
+ * so it inherits the transparency logic.
+ */
+function burnTextToMat(targetMat) {
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = targetMat.cols;
+    tempCanvas.height = targetMat.rows;
+    const ctx = tempCanvas.getContext('2d');
+
+    textElements.forEach(id => {
+        const text = document.getElementById(`t-${id}`).value;
+        const x = parseInt(document.getElementById(`x-${id}`).value);
+        const y = parseInt(document.getElementById(`y-${id}`).value);
+        const size = parseInt(document.getElementById(`s-${id}`).value);
+        const mode = document.getElementById(`m-${id}`).value;
 
         if (text) {
             ctx.font = `bold ${size}px Arial`;
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-
-            if (outline === 'opposite') {
-                ctx.strokeStyle = color === 'white' ? 'black' : 'white';
-                ctx.lineWidth = Math.max(2, size / 10);
-                ctx.strokeText(text, x, y);
-            }
-
-            ctx.fillStyle = color;
+            // In the sketch mat: 0 = Black (becomes opaque bait), 255 = White (becomes transparent)
+            ctx.fillStyle = (mode === 'bait') ? "black" : "white";
             ctx.fillText(text, x, y);
         }
     });
+
+    // Blend the canvas text onto the Mat
+    let textMat = cv.imread(tempCanvas);
+    let grayText = new cv.Mat();
+    cv.cvtColor(textMat, grayText, cv.COLOR_RGBA2GRAY);
+
+    // Only update pixels where text was actually drawn
+    // We use a simple minimum to "burn" black text into the sketch
+    for (let row = 0; row < targetMat.rows; row++) {
+        for (let col = 0; col < targetMat.cols; col++) {
+            let textPixel = grayText.ucharPtr(row, col)[0];
+            // If the text canvas isn't empty here
+            if (textPixel < 255) { 
+                targetMat.ucharPtr(row, col)[0] = textPixel;
+            }
+        }
+    }
+
+    textMat.delete(); grayText.delete();
 }
 
-// --- UI Updates ---
+// --- UI & UPDATES ---
 
-let updateJob = null;
+let updateTimer = null;
 function scheduleUpdate() {
-    tipSizeValue.textContent = tipSizeSlider.value;
-    rangeValue.textContent = rangeSlider.value;
-    
-    if (originalImage) {
-        if (updateJob) clearTimeout(updateJob);
-        updateJob = setTimeout(updatePreview, 50);
-    }
+    document.getElementById('tipSizeValue').textContent = tipSizeSlider.value;
+    document.getElementById('rangeValue').textContent = rangeSlider.value;
+    if (updateTimer) clearTimeout(updateTimer);
+    updateTimer = setTimeout(updatePreview, 100);
 }
 
 function handleFileSelect(e) {
-    if (!isReady || e.target.files.length === 0) return;
-    const file = e.target.files[0];
-    fileNameDisplay.textContent = file.name;
-
+    if (e.target.files.length === 0) return;
     const img = new Image();
     img.onload = () => {
         if (originalImage) originalImage.delete();
         originalImage = cv.imread(img);
         updatePreview();
     };
-    img.src = URL.createObjectURL(file);
+    img.src = URL.createObjectURL(e.target.files[0]);
+    document.getElementById('fileNameDisplay').textContent = e.target.files[0].name;
 }
 
 function updatePreview() {
-    if (!originalImage || originalImage.empty()) return;
-
-    const tipSize = parseFloat(tipSizeSlider.value);
-    const rangeParam = parseFloat(rangeSlider.value);
+    if (!originalImage) return;
 
     if (processedSketchMat) processedSketchMat.delete();
-    processedSketchMat = createPencilSketch(originalImage, tipSize, rangeParam);
+    processedSketchMat = createPencilSketch(originalImage, tipSizeSlider.value, rangeSlider.value);
+    
+    // Apply texts to the sketch mat
+    burnTextToMat(processedSketchMat);
 
-    // Create preview mat
-    let previewMat = new cv.Mat();
+    // Prepare for display (convert to RGBA)
+    let displayMat = new cv.Mat();
     const ratio = Math.min(PREVIEW_MAX_WIDTH / originalImage.cols, PREVIEW_MAX_HEIGHT / originalImage.rows);
-    const newWidth = Math.round(originalImage.cols * ratio);
-    const newHeight = Math.round(originalImage.rows * ratio);
-    
-    cv.resize(processedSketchMat, previewMat, new cv.Size(newWidth, newHeight));
+    cv.resize(processedSketchMat, displayMat, new cv.Size(Math.round(originalImage.cols * ratio), Math.round(originalImage.rows * ratio)));
 
-    imageCanvas.width = newWidth;
-    imageCanvas.height = newHeight;
+    imageCanvas.width = displayMat.cols;
+    imageCanvas.height = displayMat.rows;
+    cv.imshow('imageCanvas', displayMat);
     
-    // Draw sketch to canvas
-    cv.imshow('imageCanvas', previewMat);
-    
-    // Apply Text Overlays via 2D Context
-    const ctx = imageCanvas.getContext('2d');
-    applyTexts(ctx);
-
-    previewMat.delete();
-    statusElement.textContent = "Preview updated.";
+    displayMat.delete();
+    statusElement.textContent = "Preview Updated";
 }
-
-// --- Export Logic ---
 
 function saveSketch(mode) {
     if (!processedSketchMat) return;
 
-    // 1. Create the Alpha mask from the sketch
-    let alphaMat = new cv.Mat();
-    let scalar255 = new cv.Mat(processedSketchMat.rows, processedSketchMat.cols, cv.CV_8UC1, new cv.Scalar(255));
-    cv.subtract(scalar255, processedSketchMat, alphaMat);
+    const width = processedSketchMat.cols;
+    const height = processedSketchMat.rows;
     
-    // 2. Create high-res offscreen canvas
     const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = processedSketchMat.cols;
-    exportCanvas.height = processedSketchMat.rows;
+    exportCanvas.width = width;
+    exportCanvas.height = height;
     const ctx = exportCanvas.getContext('2d');
-
-    // 3. Fill based on mode
-    ctx.clearRect(0, 0, exportCanvas.width, exportCanvas.height);
     
-    // Create image data for the transparency mask
-    let imgData = ctx.createImageData(exportCanvas.width, exportCanvas.height);
-    let color = (mode === 'white') ? 0 : 255; // Black sketch for white bg, White sketch for black bg
+    const imgData = ctx.createImageData(width, height);
+    const sketchData = processedSketchMat.data;
+    const color = (mode === 'white') ? 0 : 255; 
 
-    for (let i = 0; i < alphaMat.data.length; i++) {
+    for (let i = 0; i < sketchData.length; i++) {
         const idx = i * 4;
         imgData.data[idx] = color;     // R
         imgData.data[idx + 1] = color; // G
         imgData.data[idx + 2] = color; // B
-        imgData.data[idx + 3] = alphaMat.data[i]; // A
+        imgData.data[idx + 3] = 255 - sketchData[i]; // Alpha: Darker sketch = More opaque
     }
+
     ctx.putImageData(imgData, 0, 0);
-
-    // 4. Apply text to the export canvas (at full resolution)
-    // We scale the text positions from preview size to original size
-    const scale = 1; // Our text coordinates are stored in 'original image' space relative to the preview
-    // Note: Since we used the preview canvas width/height for X/Y, we need to scale them back up
-    const ratio = exportCanvas.width / imageCanvas.width;
-    applyTexts(ctx, ratio);
-
-    // 5. Download
+    
     const link = document.createElement('a');
     link.download = `bait_${mode}.png`;
     link.href = exportCanvas.toDataURL("image/png");
     link.click();
-
-    alphaMat.delete();
-    scalar255.delete();
 }
