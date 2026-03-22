@@ -1,5 +1,6 @@
 // --- Global Variables ---
-let originalImage = null;
+let originalImage = null; // RGBA Mat
+let originalAlpha = null; // Single channel Alpha Mat
 let processedSketchMat = null;
 const PREVIEW_MAX_WIDTH = 800;
 const PREVIEW_MAX_HEIGHT = 600;
@@ -61,21 +62,35 @@ function adjustLevels(srcMat, lower_bound, upper_bound) {
 
 function createPencilSketch(imgMat, pencil_tip_size, range_param) {
     if (!isReady || !imgMat || imgMat.empty()) return null;
+    
+    // We only want the color info for the sketch logic
     let grayImg = new cv.Mat();
     cv.cvtColor(imgMat, grayImg, cv.COLOR_RGBA2GRAY, 0);
+    
     let invertedGrayImg = new cv.Mat();
     cv.bitwise_not(grayImg, invertedGrayImg);
+    
     let kernelSize = Math.max(1, parseInt(pencil_tip_size));
     if (kernelSize % 2 === 0) kernelSize += 1;
+    
     let blurredImg = new cv.Mat();
     cv.GaussianBlur(invertedGrayImg, blurredImg, new cv.Size(kernelSize, kernelSize), 0);
+    
     let invertedBlurredImg = new cv.Mat();
     cv.bitwise_not(blurredImg, invertedBlurredImg);
+    
     let pencilSketch = new cv.Mat();
     cv.divide(grayImg, invertedBlurredImg, pencilSketch, 256.0);
+    
     const contrastFactor = 20;
     let finalSketch = adjustLevels(pencilSketch, 0 - (range_param * contrastFactor), 255 + (range_param * contrastFactor));
-    grayImg.delete(); invertedGrayImg.delete(); blurredImg.delete(); invertedBlurredImg.delete(); pencilSketch.delete();
+    
+    grayImg.delete(); 
+    invertedGrayImg.delete(); 
+    blurredImg.delete(); 
+    invertedBlurredImg.delete(); 
+    pencilSketch.delete();
+    
     return finalSketch;
 }
 
@@ -133,14 +148,11 @@ function handleCanvasClick(e) {
     scheduleUpdate();
 }
 
-/**
- * Renders text onto a context. 
- * 'black' on the grayscale map = opaque ink.
- * 'white' on the grayscale map = transparent knockout.
- */
 function renderTextToMap(ctx, scale) {
     textElements.forEach(el => {
-        const text = document.getElementById(el.textId).value;
+        const textInput = document.getElementById(el.textId);
+        if (!textInput) return;
+        const text = textInput.value;
         if (!text) return;
         
         const x = parseInt(document.getElementById(el.xId).value) * scale;
@@ -181,7 +193,17 @@ function handleFileSelect(e) {
     const img = new Image();
     img.onload = () => {
         if (originalImage) originalImage.delete();
-        originalImage = cv.imread(img);
+        if (originalAlpha) originalAlpha.delete();
+        
+        const tempMat = cv.imread(img);
+        originalImage = tempMat;
+        
+        // Extract original alpha channel
+        let rgbaChannels = new cv.MatVector();
+        cv.split(originalImage, rgbaChannels);
+        originalAlpha = rgbaChannels.get(3).clone(); // Keep the transparency channel
+        
+        rgbaChannels.delete();
         updatePreview();
     };
     img.src = URL.createObjectURL(e.target.files[0]);
@@ -209,38 +231,56 @@ function updatePreview() {
 // --- Download Logic ---
 
 function saveSketch(mode) {
-    if (!processedSketchMat) return;
+    if (!processedSketchMat || !originalAlpha) return;
     
+    const w = processedSketchMat.cols;
+    const h = processedSketchMat.rows;
+
     const workCanvas = document.createElement('canvas');
-    workCanvas.width = processedSketchMat.cols;
-    workCanvas.height = processedSketchMat.rows;
+    workCanvas.width = w;
+    workCanvas.height = h;
     const workCtx = workCanvas.getContext('2d');
     
-    // Draw grayscale sketch
+    // 1. Draw the processed grayscale sketch to the canvas
     cv.imshow(workCanvas, processedSketchMat);
     
-    // Draw text on grayscale map (scaled up)
-    renderTextToMap(workCtx, workCanvas.width / imageCanvas.width);
+    // 2. Add text (scaled)
+    renderTextToMap(workCtx, w / imageCanvas.width);
 
-    const combinedData = workCtx.getImageData(0, 0, workCanvas.width, workCanvas.height);
+    // 3. Get the "Map" data (which contains sketch + text)
+    const combinedData = workCtx.getImageData(0, 0, w, h);
+    
+    // 4. Get the original transparency data
+    const alphaCanvas = document.createElement('canvas');
+    alphaCanvas.width = w; alphaCanvas.height = h;
+    cv.imshow(alphaCanvas, originalAlpha);
+    const alphaData = alphaCanvas.getContext('2d').getImageData(0, 0, w, h);
+
     const finalCanvas = document.createElement('canvas');
-    finalCanvas.width = workCanvas.width; finalCanvas.height = workCanvas.height;
+    finalCanvas.width = w; finalCanvas.height = h;
     const finalCtx = finalCanvas.getContext('2d');
-    const finalImgData = finalCtx.createImageData(finalCanvas.width, finalCanvas.height);
+    const finalImgData = finalCtx.createImageData(w, h);
 
-    const ink = (mode === 'white') ? 0 : 255; 
+    const ink = (mode === 'white') ? 255 : 0; 
 
     for (let i = 0; i < combinedData.data.length; i += 4) {
-        const gray = combinedData.data[i]; 
+        const grayValue = combinedData.data[i]; // Gray from sketch
+        const origAlpha = alphaData.data[i];   // Original transparency (0-255)
+
         finalImgData.data[i] = ink;
         finalImgData.data[i+1] = ink;
         finalImgData.data[i+2] = ink;
-        finalImgData.data[i+3] = 255 - gray; // Convert grayscale to Alpha
+        
+        // Calculate new alpha: 
+        // 255 - grayValue makes dark areas opaque.
+        // We then multiply by (origAlpha / 255) to respect the original transparency.
+        const sketchAlpha = 255 - grayValue;
+        finalImgData.data[i+3] = Math.round(sketchAlpha * (origAlpha / 255));
     }
 
     finalCtx.putImageData(finalImgData, 0, 0);
     const link = document.createElement('a');
-    link.download = `bait_${mode}.png`;
+    link.download = `sketch_${mode}.png`;
     link.href = finalCanvas.toDataURL("image/png");
     link.click();
 }
